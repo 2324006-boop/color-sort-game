@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>カラーソートパズル</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            text-align: center;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        h1 {
+            margin-bottom: 10px;
+        }
+        /* タイマーのデザイン */
+        #timer {
+            font-size: 1.2rem;
+            font-weight: bold;
+            background-color: #e0e0e0;
+            padding: 5px 15px;
+            border-radius: 20px;
+            display: inline-block;
+            margin-bottom: 20px;
+        }
+        /* 試験管を並べるエリア */
+        .game-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 30px;
+            min-height: 250px;
+        }
+        /* 試験管の見た目 */
+        .tube {
+            width: 60px;
+            height: 200px;
+            border: 4px solid #444;
+            border-top: none;
+            border-radius: 0 0 20px 20px;
+            background-color: #fff;
+            display: flex;
+            flex-direction: column-reverse; /* 下から順に積み上げる */
+            align-items: center;
+            padding-bottom: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        /* 選択された試験管の演出 */
+        .tube.selected {
+            transform: translateY(-20px);
+            border-color: #ff5722;
+            box-shadow: 0 10px 15px rgba(255, 87, 34, 0.3);
+        }
+        /* 色ブロックの見た目 */
+        .color-block {
+            width: 48px;
+            height: 44px;
+            margin-top: 3px;
+            border-radius: 8px;
+            box-shadow: inset 0 -4px 0 rgba(0,0,0,0.15); /* 立体感 */
+        }
+        /* カラーバリエーション */
+        .red { background-color: #ff4d4d; }
+        .blue { background-color: #4da6ff; }
+        .green { background-color: #4dff4d; }
+
+        /* クリア画面のポップアップ（背景の黒透明） */
+        .overlay {
+            display: none; /* 初期状態は非表示 */
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        /* クリア画面の白いウィンドウ */
+        .clear-window {
+            background-color: #fff;
+            padding: 40px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            animation: popIn 0.3s ease-out;
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .clear-window h2 {
+            color: #4caf50;
+            font-size: 2rem;
+            margin-top: 0;
+        }
+        .clear-window p {
+            font-size: 1.2rem;
+            margin: 15px 0;
+        }
+        /* ボタンのデザイン */
+        .btn {
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>カラーソートパズル</h1>
+    <div id="timer">タイム: 0秒</div>
+    <p>同じ色をひとつの試験管に4つ集めよう！<br>（いずれかの試験管を触るとタイマーが始まります）</p>
+
+    <div class="game-container" id="gameContainer"></div>
+
+    <!-- ゲームクリア画面（ポップアップ） -->
+    <div class="overlay" id="clearOverlay">
+        <div class="clear-window">
+            <h2>🎉 Game Clear! 🎉</h2>
+            <p id="resultTime">クリアタイム: 0秒</p>
+            <button class="btn" onclick="initGame()">もう一度遊ぶ</button>
+        </div>
+    </div>
+
+    <script>
+        // ゲームの初期配置（各色4つずつ、バラバラに配置）
+        const INITIAL_TUBES = [
+            ['red', 'blue', 'green', 'red'],
+            ['blue', 'green', 'red', 'blue'],
+            ['green', 'red', 'blue', 'green'],
+            [], // 空の試験管
+            []  // 空の試験管
+        ];
+
+        const TUBE_CAPACITY = 4; // 試験管の最大容量
+        let tubes = [];
+        let selectedTubeIndex = null;
+        
+        // タイマー用変数
+        let startTime = null;
+        let timerInterval = null;
+        let gameCleared = false;
+
+        // ゲームの初期化・リセット
+        function initGame() {
+            // 配列を新しくコピーして初期化
+            tubes = JSON.parse(JSON.stringify(INITIAL_TUBES));
+            selectedTubeIndex = null;
+            startTime = null;
+            gameCleared = false;
+            
+            if (timerInterval) clearInterval(timerInterval);
+            document.getElementById('timer').innerText = 'タイム: 0秒';
+            document.getElementById('clearOverlay').style.display = 'none';
+            
+            render();
+        }
+
+        // 画面を描画する関数
+        function render() {
+            const container = document.getElementById('gameContainer');
+            container.innerHTML = '';
+
+            tubes.forEach((tube, index) => {
+                const tubeDiv = document.createElement('div');
+                tubeDiv.classList.add('tube');
+                if (selectedTubeIndex === index) {
+                    tubeDiv.classList.add('selected');
+                }
+
+                tube.forEach(color => {
+                    const block = document.createElement('div');
+                    block.classList.add('color-block', color);
+                    tubeDiv.appendChild(block);
+                });
+
+                // クリア後はクリックできないようにする
+                if (!gameCleared) {
+                    tubeDiv.addEventListener('click', () => selectTube(index));
+                }
+                container.appendChild(tubeDiv);
+            });
+        }
+
+        // 試験管クリック時の処理
+        function selectTube(index) {
+            // 1番最初の操作でタイマーを開始
+            if (!startTime) {
+                startTime = Date.now();
+                startTimer();
+            }
+
+            if (selectedTubeIndex === null) {
+                if (tubes[index].length > 0) {
+                    selectedTubeIndex = index;
+                }
+            } else {
+                if (selectedTubeIndex === index) {
+                    selectedTubeIndex = null;
+                } else {
+                    moveColor(selectedTubeIndex, index);
+                    selectedTubeIndex = null;
+                }
+            }
+            render();
+        }
+
+        // 色の移動ロジック
+        function moveColor(fromIndex, toIndex) {
+            const fromTube = tubes[fromIndex];
+            const toTube = tubes[toIndex];
+
+            if (fromTube.length === 0) return;
+            if (toTube.length >= TUBE_CAPACITY) return;
+
+            const topColor = fromTube[fromTube.length - 1];
+
+            if (toTube.length === 0 || toTube[toTube.length - 1] === topColor) {
+                const poppedColor = fromTube.pop();
+                toTube.push(poppedColor);
+                
+                // 移動ごとにクリアしたか判定
+                checkWin();
+            }
+        }
+
+        // タイマーカウント関数
+        function startTimer() {
+            timerInterval = setInterval(() => {
+                if (gameCleared) return;
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                document.getElementById('timer').innerText = `タイム: ${elapsed}秒`;
+            }, 1000);
+        }
+
+        // クリア判定関数
+        function checkWin() {
+            const isWin = tubes.every(tube => {
+                // 「完全に空」 または 「4つ満タンかつ全て同じ色」 ならクリア条件達成
+                if (tube.length === 0) return true;
+                if (tube.length === TUBE_CAPACITY) {
+                    return tube.every(color => color === tube[0]);
+                }
+                return false;
+            });
+
+            if (isWin) {
+                gameCleared = true;
+                clearInterval(timerInterval);
+                const finalTime = Math.floor((Date.now() - startTime) / 1000);
+                
+                // クリア画面（オーバーレイ）を表示
+                document.getElementById('resultTime').innerText = `クリアタイム: ${finalTime}秒`;
+                document.getElementById('clearOverlay').style.display = 'flex';
+            }
+        }
+
+        // ページ読み込み時に初期化
+        initGame();
+    </script>
+</body>
+</html>
